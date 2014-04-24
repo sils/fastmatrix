@@ -27,7 +27,7 @@ endif
 
 LIBS     := -L../../OpenCL-Wrapper/Code/lib/ -lOclWrapper -lGL \
 -lpthread $(OCL_LIB)
-INCS     := -I./matrix -I./util $(OCL_INC)
+INCS     := -I./matrix -I./util -I../../OpenCL-Wrapper/Code/inc $(OCL_INC)
 
 default: $(TARGET)
 
