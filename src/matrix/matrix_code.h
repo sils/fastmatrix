@@ -47,6 +47,12 @@ void Matrix<TYPE>::PrepareGPU()
     
     DEBUG_OUTPUT("Context is prepared.");
 
+    //prepare queue
+    m_queue.setContext(m_context);
+    m_queue.setDevice(m_device);
+    m_context.insert(&m_queue);
+    m_context.setActiveQueue(m_queue);
+
     //Prepare program, build kernels
     m_program = ocl::Program(m_context, utl::Type::type<TYPE>());
     m_program << kernel_strings::kernels;
@@ -55,19 +61,16 @@ void Matrix<TYPE>::PrepareGPU()
     {
         cout << "Program build successfully!" << endl;
     }
+
+    m_program = ocl::Program(m_context, utl::Type::type<TYPE>());
+    //m_context.setActiveProgram(program);
 }
 
 #if 0
  
-    //prepare queue
-    ocl::Queue queue(context, device);
-    context.setActiveQueue(queue);
-
     //Create program; get type objects for template parameters
     //TODO take the right types here
-    ocl::Program program(context, utl::Type::type<TYPE>());
  
-    context.setActiveProgram(program);
     
     ocl::Kernel &initKernel = program.kernel("init", utl::Type::type<TYPE>());
     

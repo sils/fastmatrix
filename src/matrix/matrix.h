@@ -69,6 +69,7 @@ private:
     ocl::Device   m_device;
     ocl::Context  m_context;
     ocl::Program  m_program;
+    ocl::Queue    m_queue;
 };
 
 //This is where the code lies!
