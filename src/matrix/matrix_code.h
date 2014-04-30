@@ -45,6 +45,8 @@ void Matrix<TYPE>::PrepareGPU()
     m_platform.insert(m_context);
     m_platform.setActiveContext(m_context);
     
+    DEBUG_OUTPUT("Context is prepared.");
+
     //Prepare program, build kernels
     m_program = ocl::Program(m_context, utl::Type::type<TYPE>());
     m_program << kernel_strings::kernels;

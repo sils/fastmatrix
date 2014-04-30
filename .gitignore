@@ -23,3 +23,6 @@
 # Temporary editor files
 *~
 *.swp
+
+# The executable
+src/fastmatrix
