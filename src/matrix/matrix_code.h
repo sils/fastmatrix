@@ -61,9 +61,6 @@ void Matrix<TYPE>::PrepareGPU()
     {
         cout << "Program build successfully!" << endl;
     }
-
-    m_program = ocl::Program(m_context, utl::Type::type<TYPE>());
-    //m_context.setActiveProgram(program);
 }
 
 #if 0
