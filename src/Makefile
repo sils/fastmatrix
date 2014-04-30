@@ -25,9 +25,9 @@ ifdef AMD
 	OCL_INC += -I/opt/AMDAPP/include
 endif
 
-LIBS     := -L../../OpenCL-Wrapper/Code/lib/ -lOclWrapper -lGL \
+LIBS     := -L../../OpenCL-Wrapper_new/Code/lib/ -lOclWrapper -lGL \
 -lpthread $(OCL_LIB)
-INCS     := -I./matrix -I./util -I../../OpenCL-Wrapper/Code/inc $(OCL_INC)
+INCS     := -I./matrix -I./util -I../../OpenCL-Wrapper_new/Code/inc $(OCL_INC)
 
 default: $(TARGET)
 

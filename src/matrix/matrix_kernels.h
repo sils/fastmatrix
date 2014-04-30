@@ -40,7 +40,7 @@ __kernel void copy(unsigned int rows, unsigned int cols,
 
 template<class TYPE>
 __kernel void init(unsigned int rows, unsigned int cols,
-                   __global TYPE *dst, __global TYPE initVal)
+                   __global TYPE *dst, __global TYPE *initVal)
 {
     unsigned int id0 = get_global_id(0);
     unsigned int id1 = get_global_id(1);
@@ -49,7 +49,7 @@ __kernel void init(unsigned int rows, unsigned int cols,
 
     unsigned int index = id0 + id1*cols;
 
-    dst[index] = initVal;
+    dst[index] = *initVal;
 }
 
 template<class TYPE>
@@ -61,11 +61,11 @@ __kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
 
     if(id0 >= n || id1 >= m) return;
     
-    unsigned int index1   = id0*k;
-    unsigned int end      = index1 + k;
-    unsigned int index2   = id1;
+    unsigned int index1 = id0*k;
+    unsigned int end = index1 + k;
+    unsigned int index2 = id1;
     unsigned int dstindex = id0*m+id1;
-    TYPE     result   = 0;
+    TYPE result = 0;
     
     while(index1 < end)
     {
