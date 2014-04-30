@@ -51,15 +51,14 @@ void Matrix<TYPE>::PrepareGPU()
     m_program = ocl::Program(m_context, utl::Type::type<TYPE>());
     m_program << kernel_strings::kernels;
     m_program.build();
+    if (m_program.isBuilt())
+    {
+        cout << "Program build successfully!" << endl;
+    }
 }
 
 #if 0
  
-    //Prepare context to work
-    ocl::Context context(device);
-    platform.insert(context);
-    platform.setActiveContext(context);
-    
     //prepare queue
     ocl::Queue queue(context, device);
     context.setActiveQueue(queue);
@@ -68,14 +67,6 @@ void Matrix<TYPE>::PrepareGPU()
     //TODO take the right types here
     ocl::Program program(context, utl::Type::type<TYPE>());
  
-    //insert kernels
-    program<<kernel_strings::kernels;
-    program.build();
-    if(program.isBuilt())
-    {
-        cout<<"Program built successfully!"<<endl;
-    }
-
     context.setActiveProgram(program);
     
     ocl::Kernel &initKernel = program.kernel("init", utl::Type::type<TYPE>());
