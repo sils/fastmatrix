@@ -23,6 +23,12 @@ template<typename TYPE>
 Matrix<TYPE>::Matrix(const unsigned int rows, const unsigned int cols, const TYPE initval)
 {
     PrepareGPU();
+    ocl::Kernel& initKernel = m_program.kernel("init", utl::Type::type<TYPE>());
+    initKernel.setWorkSize(16, 16, rows, cols);
+
+    ocl::Buffer b_mat(m_context, rows*cols*sizeof(TYPE));
+
+    initKernel(int(rows), int(cols), b_mat.id(), initval);
 }
 
 template<typename TYPE>
@@ -69,7 +75,6 @@ void Matrix<TYPE>::PrepareGPU()
     //TODO take the right types here
  
     
-    ocl::Kernel &initKernel = program.kernel("init", utl::Type::type<TYPE>());
     
     ocl::Kernel &copyKernel = program.kernel("copy", utl::Type::type<TYPE>());
 
