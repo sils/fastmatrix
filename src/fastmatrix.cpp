@@ -140,7 +140,7 @@ int main()
 
         // execute both kernels only if the event_write is completed.
         // note that kernel executions are always asynchronous.
-	const size_t execute = 2;
+	const size_t execute = 25;
 	utl::Timer::tic();
 	for(size_t i = 0; i < execute; ++i){
 	  kernel(queue, int(n), int(k), int(m), d_matrix_out.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
