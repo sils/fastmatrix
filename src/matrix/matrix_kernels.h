@@ -70,13 +70,12 @@ __kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
     
     while(index1 < end)
     {
-        
-	result += src1[index1] * src2[index2];
+        result += src1[index1] * src2[index2];
         index1++;
         index2+=m;
     }
     
-    dst[index1] = result;
+    dst[dstindex] = result;
 }
 
 )";
