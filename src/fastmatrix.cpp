@@ -9,8 +9,10 @@
 #include <CL/opencl.h>
 #endif
 
-#define SIMPLE
+#undef SIMPLE
 #define LOCAL
+#undef OUTPUT
+#define EXECUTE_N_TIMES 4
 
 namespace kernel_strings {
 
@@ -52,18 +54,18 @@ __kernel void multiply_simple(unsigned int n, unsigned int k, unsigned int m,
 
     if(id0 >= n || id1 >= m) return;
 
-    unsigned int index1 = id0*k;
-    unsigned int end = index1 + k;
-    unsigned int index2 = id1;
+    unsigned int index1 = id0;
+    unsigned int index2 = id1*k;
+    unsigned int end = index2 + k;
 
-    unsigned int dstindex = id0*m+id1;
+    unsigned int dstindex = id0+id1*k;
     TYPE result = 0;
 
-    while(index1 < end)
+    while(index2 < end)
     {
         result += src1[index1] * src2[index2];
-        index1++;
-        index2+=m;
+        index1+=n;
+        index2++;
     }
 
     dst[dstindex] = result;
@@ -74,8 +76,8 @@ __kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
                        __global TYPE *dst, __global TYPE *src1, __global TYPE *src2)
 {
     int BLOCK_SIZE = 16;
-    __local float As[16 * 16];
-    __local float Bs[16 * 16];
+    __local TYPE As[16 * 16];
+    __local TYPE Bs[16 * 16];
 
     unsigned int g_col = get_group_id(0);
     unsigned int g_row = get_group_id(1);
@@ -106,8 +108,8 @@ __kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
         for (int e = 0; e < 16; ++e) {
             c_value += Bs[l_col * 16 + e] * As[e * 16 + l_row];
         //
-            barrier(CLK_LOCAL_MEM_FENCE);
 	}
+        barrier(CLK_LOCAL_MEM_FENCE);
     }
 
     dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)] = c_value;
@@ -132,6 +134,7 @@ int main()
     ocl::Queue queue(context, device);
 
 
+
     // create program on a context.
     ocl::Program program(context, utl::type::Single | utl::type::Int);
 
@@ -142,23 +145,24 @@ int main()
     program.build();
     {
 
-        typedef int Type;
+        typedef float Type;
 //         typedef utl::Matrix <Type,utl::column_major_tag> Matrix;
 //         typedef utl::Ones <Type,utl::column_major_tag> Ones;
         typedef utl::Zeros <Type,utl::column_major_tag> Zeros;
         typedef utl::Rand <Type,utl::column_major_tag, utl::uniform_dist_tag> Rand;
 
-        using Timer = utl::Timer<utl::MicroSeconds>;
+        using Timer = utl::Timer<utl::MilliSeconds>;
 
         // get the kernels.
 #ifdef LOCAL
-        ocl::Kernel &kernel = program.kernel("multiply", utl::type::Int);
+        ocl::Kernel &kernel = program.kernel("multiply", utl::type::Single);
 #endif
 #ifdef SIMPLE
-        ocl::Kernel &kernel_simple = program.kernel("multiply_simple", utl::type::Int);
+        ocl::Kernel &kernel_simple = program.kernel("multiply_simple", utl::type::Single);
 #endif
 
-        size_t n = 1024, k = 1024, m = 1024;
+#define SIZE 4096*2
+        size_t n = SIZE, k = SIZE, m = SIZE;
 
         size_t elements_a = n * k;
         size_t size_bytes_a = elements_a * sizeof(Type);
@@ -206,18 +210,15 @@ int main()
     d_matrix_out_simple.write(queue, 0, h_matrix_out_simple.data(), size_bytes_out);
 #endif
 
-        // execute both kernels only if the event_write is completed.
+        // EXECUTE_N_TIMES both kernels only if the event_write is completed.
         // note that kernel executions are always asynchronous.
-	const size_t execute = 25;
 
 #ifdef SIMPLE
     Timer::tic();
-    for(size_t i = 0; i < execute; ++i){
       kernel_simple(queue,
              int(n), int(k), int(m),
              d_matrix_out_simple.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
       queue.finish();
-    }
     Timer::toc();
 
     d_matrix_out_simple.read(queue, h_matrix_out_simple.data(), size_bytes_out);
@@ -225,11 +226,11 @@ int main()
     // timer toc
     float min_gpu = std::min_element(h_matrix_out_simple.begin(), h_matrix_out_simple.end())[0];
 
-    std::cout << "[INFO] Simple Minimum [GPU]: " << min_gpu << "\n[INFO] Simnple time [GPU in us] = " << Timer::elapsed().count()/execute << std::endl;
+    std::cout << "[INFO] Simple Minimum [GPU]: " << min_gpu << "\n[INFO] Simple time [GPU in us] = " << Timer::elapsed().count() << std::endl;
 #endif
 #ifdef LOCAL
 	Timer::tic();
-	for(size_t i = 0; i < execute; ++i){
+	for(size_t i = 0; i < EXECUTE_N_TIMES; ++i){
       kernel(queue,
              int(n), int(k), int(m),
              d_matrix_out.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
@@ -248,25 +249,31 @@ int main()
 #endif
 	min_gpu = std::min_element(h_matrix_out.begin(), h_matrix_out.end())[0];
 	
-	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n[INFO] Time [GPU in us] = " << Timer::elapsed().count()/execute << std::endl;
+	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n[INFO] Time [GPU in us] = " << Timer::elapsed().count()/EXECUTE_N_TIMES << std::endl;
 #endif
-	auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
+
+	//auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
 	
-        //std::cout << "Matrix(out) after computation : " << std::endl << h_matrix_out << std::endl;
-     //std::cout << "Matrix after computation : " << std::endl << h_matrix_correct << std::endl;
 #ifdef SIMPLE
-    if(h_matrix_correct == h_matrix_out_simple) {
-    std::cout << "[INFO] Simple computation was correct." << std::endl;
-    } else {
-        std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
-    }
-#endif
 #ifdef LOCAL
-        if(h_matrix_correct == h_matrix_out) {
-		std::cout << "[INFO] Local computation was correct." << std::endl;
-	} else {
-		std::cout << "[ERR ] FAILURE: Local computation was incorrect!" << std::endl;
-	}
+    if(h_matrix_out == h_matrix_out_simple) {
+    std::cout << "[INFO] Computation was correct." << std::endl;
+    } else {
+        std::cout << "[ERR ] FAILURE: Computation was incorrect!" << std::endl;
+    }
+
+#ifdef OUTPUT
+     std::cout << "Matrix(simple) after computation : " << std::endl << h_matrix_out_simple << std::endl;
+     std::cout << "Matrix(local)  after computation : " << std::endl << h_matrix_out << std::endl;
+#endif
+#else
+	auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
+        if(h_matrix_correct == h_matrix_out_simple) {
+               std::cout << "[INFO] Simple computation was correct." << std::endl;
+       } else {
+               std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
+       }
+#endif
 #endif
     }
 
