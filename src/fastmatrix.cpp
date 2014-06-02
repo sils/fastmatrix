@@ -12,7 +12,7 @@
 #undef SIMPLE
 #define LOCAL
 #undef OUTPUT
-#define EXECUTE_N_TIMES 4
+#define EXECUTE_N_TIMES 1
 
 namespace kernel_strings {
 
@@ -249,31 +249,32 @@ int main()
 #endif
 	min_gpu = std::min_element(h_matrix_out.begin(), h_matrix_out.end())[0];
 	
-	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n[INFO] Time [GPU in us] = " << Timer::elapsed().count()/EXECUTE_N_TIMES << std::endl;
+	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n"
+	<< "[INFO] Time [GPU in us] = " << Timer::elapsed().count()/EXECUTE_N_TIMES << " (executed "<<EXECUTE_N_TIMES << " time(s))" << std::endl;
 #endif
 
 	//auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
 	
 #ifdef SIMPLE
-#ifdef LOCAL
-    if(h_matrix_out == h_matrix_out_simple) {
-    std::cout << "[INFO] Computation was correct." << std::endl;
-    } else {
-        std::cout << "[ERR ] FAILURE: Computation was incorrect!" << std::endl;
-    }
+	#ifdef LOCAL
+	    if(h_matrix_out == h_matrix_out_simple) {
+	    std::cout << "[INFO] Computation was correct." << std::endl;
+	    } else {
+		std::cout << "[ERR ] FAILURE: Computation was incorrect!" << std::endl;
+	    }
 
-#ifdef OUTPUT
-     std::cout << "Matrix(simple) after computation : " << std::endl << h_matrix_out_simple << std::endl;
-     std::cout << "Matrix(local)  after computation : " << std::endl << h_matrix_out << std::endl;
-#endif
-#else
-	auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
-        if(h_matrix_correct == h_matrix_out_simple) {
-               std::cout << "[INFO] Simple computation was correct." << std::endl;
-       } else {
-               std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
-       }
-#endif
+		#ifdef OUTPUT
+		     std::cout << "Matrix(simple) after computation : " << std::endl << h_matrix_out_simple << std::endl;
+		     std::cout << "Matrix(local)  after computation : " << std::endl << h_matrix_out << std::endl;
+		#endif
+	#else
+		auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
+		if(h_matrix_correct == h_matrix_out_simple) {
+		       std::cout << "[INFO] Simple computation was correct." << std::endl;
+	       } else {
+		       std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
+	       }
+	#endif
 #endif
     }
 
