@@ -9,6 +9,8 @@
 #include <CL/opencl.h>
 #endif
 
+#define SIMPLE
+#define LOCAL
 
 namespace kernel_strings {
 
@@ -42,29 +44,73 @@ __kernel void addc(int rows, int cols, __global Type *dst, __global Type *src, T
 }
 
 template<class TYPE>
-__kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
+__kernel void multiply_simple(unsigned int n, unsigned int k, unsigned int m,
                        __global TYPE *dst, __global TYPE *src1, __global TYPE *src2)
 {
     unsigned int id0 = get_global_id(0);
     unsigned int id1 = get_global_id(1);
 
     if(id0 >= n || id1 >= m) return;
-    
+
     unsigned int index1 = id0*k;
     unsigned int end = index1 + k;
     unsigned int index2 = id1;
-    
+
     unsigned int dstindex = id0*m+id1;
     TYPE result = 0;
-    
+
     while(index1 < end)
     {
         result += src1[index1] * src2[index2];
         index1++;
         index2+=m;
     }
-    
+
     dst[dstindex] = result;
+}
+
+template<class TYPE>
+__kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
+                       __global TYPE *dst, __global TYPE *src1, __global TYPE *src2)
+{
+    int BLOCK_SIZE = 16;
+    __local float As[16 * 16];
+    __local float Bs[16 * 16];
+
+    unsigned int g_col = get_group_id(0);
+    unsigned int g_row = get_group_id(1);
+
+    unsigned int l_row = get_local_id(0);
+    unsigned int l_col = get_local_id(1);
+
+    if(g_col >= n / 16 || g_row >= m / 16 || l_col >= 16 || l_row >= 16)
+        return;
+
+    TYPE c_value = 0;
+
+    for (int j = 0; j < (k / 16); ++j) {
+        //
+        As[l_col * 16 + l_row] = src1[(g_row * 16 + j * n * 16) + (l_col * n + l_row)];
+
+        /*dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)]
+                = src1[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)];*/
+
+        Bs[l_col * 16 + l_row] = src2[(j * 16 + g_col * k * 16) + (l_col * k + l_row)];
+
+        /*dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)]
+                        = src2[(g_row * 16 + g_col * k * 16) + (l_col * k + l_row)];*/
+
+        //
+        barrier(CLK_LOCAL_MEM_FENCE);
+        //
+        for (int e = 0; e < 16; ++e) {
+            c_value += Bs[l_col * 16 + e] * As[e * 16 + l_row];
+        //
+            barrier(CLK_LOCAL_MEM_FENCE);
+	}
+    }
+
+    dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)] = c_value;
 }
 
 )";
@@ -99,11 +145,18 @@ int main()
         typedef int Type;
 //         typedef utl::Matrix <Type,utl::column_major_tag> Matrix;
 //         typedef utl::Ones <Type,utl::column_major_tag> Ones;
-        typedef utl::Zeros <Type,utl::row_major_tag> Zeros;
-        typedef utl::Rand <Type,utl::row_major_tag, utl::uniform_dist_tag> Rand;
+        typedef utl::Zeros <Type,utl::column_major_tag> Zeros;
+        typedef utl::Rand <Type,utl::column_major_tag, utl::uniform_dist_tag> Rand;
+
+        using Timer = utl::Timer<utl::MicroSeconds>;
 
         // get the kernels.
+#ifdef LOCAL
         ocl::Kernel &kernel = program.kernel("multiply", utl::type::Int);
+#endif
+#ifdef SIMPLE
+        ocl::Kernel &kernel_simple = program.kernel("multiply_simple", utl::type::Int);
+#endif
 
         size_t n = 1024, k = 1024, m = 1024;
 
@@ -117,51 +170,104 @@ int main()
         size_t size_bytes_out = elements_out * sizeof(Type);
 
         // set the index space for the kernels
+#ifdef LOCAL
         kernel.setWorkSize(16, 16, n, m);
+#endif
+#ifdef SIMPLE
+        kernel_simple.setWorkSize(16, 16, n, m);
+#endif
 
         // create host matrices
         auto h_matrix_in_a  = Rand(n,k,1,5);
 	auto h_matrix_in_b  = Rand(k,m,1,5);
-	
-        auto h_matrix_out = Zeros(n,m);
 
-        // std::cout << "Matrix(a) before computation: " << std::endl << h_matrix_in_a << std::endl;
-	// std::cout << "Matrix(b) before computation: " << std::endl << h_matrix_in_b << std::endl;
-        // std::cout << "Matrix(out) before computation: " << std::endl << h_matrix_out << std::endl;
+        auto h_matrix_out = Zeros(n,m);
+#ifdef SIMPLE
+        auto h_matrix_out_simple = Zeros(n,m);
+#endif
+
+         //std::cout << "Matrix(a) before computation: " << std::endl << h_matrix_in_a << std::endl;
+     	 //std::cout << "Matrix(b) before computation: " << std::endl << h_matrix_in_b << std::endl;
+         //std::cout << "Matrix(out) before computation: " << std::endl << h_matrix_out << std::endl;
 
         // create device buffers on the specified context
         ocl::Buffer d_matrix_in_a (context, size_bytes_a);
 	ocl::Buffer d_matrix_in_b (context, size_bytes_b);
         ocl::Buffer d_matrix_out(context, size_bytes_out);
+        ocl::Buffer d_matrix_out_simple(context, size_bytes_out);
 
         // copy data from host buffers to device buffers
         d_matrix_in_a.write(queue, 0, h_matrix_in_a.data(), size_bytes_a);
 	d_matrix_in_b.write(queue, 0, h_matrix_in_b.data(), size_bytes_b);
+#ifdef LOCAL
+    d_matrix_out.write(queue, 0, h_matrix_out.data(), size_bytes_out);
+#endif
+#ifdef SIMPLE
+    d_matrix_out_simple.write(queue, 0, h_matrix_out_simple.data(), size_bytes_out);
+#endif
 
         // execute both kernels only if the event_write is completed.
         // note that kernel executions are always asynchronous.
 	const size_t execute = 25;
-	utl::Timer::tic();
+
+#ifdef SIMPLE
+    Timer::tic();
+    for(size_t i = 0; i < execute; ++i){
+      kernel_simple(queue,
+             int(n), int(k), int(m),
+             d_matrix_out_simple.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
+      queue.finish();
+    }
+    Timer::toc();
+
+    d_matrix_out_simple.read(queue, h_matrix_out_simple.data(), size_bytes_out);
+
+    // timer toc
+    float min_gpu = std::min_element(h_matrix_out_simple.begin(), h_matrix_out_simple.end())[0];
+
+    std::cout << "[INFO] Simple Minimum [GPU]: " << min_gpu << "\n[INFO] Simnple time [GPU in us] = " << Timer::elapsed().count()/execute << std::endl;
+#endif
+#ifdef LOCAL
+	Timer::tic();
 	for(size_t i = 0; i < execute; ++i){
-	  kernel(queue, int(n), int(k), int(m), d_matrix_out.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
+      kernel(queue,
+             int(n), int(k), int(m),
+             d_matrix_out.id(), d_matrix_in_a.id(), d_matrix_in_b.id());
 	  queue.finish();
 	}
-	utl::Timer::toc();
+	Timer::toc();
 	
 	// copy data from device buffers to host buffers
         d_matrix_out.read(queue, h_matrix_out.data(), size_bytes_out);
+
+
 	
 	// timer toc
-	float min_gpu = std::min_element(h_matrix_out.begin(), h_matrix_out.end())[0];
+#ifndef SIMPLE
+    float
+#endif
+	min_gpu = std::min_element(h_matrix_out.begin(), h_matrix_out.end())[0];
 	
-	std::cout << "Minimum[GPU]: " << min_gpu << ", Time[GPU] = " << utl::Seconds(utl::Timer::elapsed(execute)) << std::endl;
-	
+	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n[INFO] Time [GPU in us] = " << Timer::elapsed().count()/execute << std::endl;
+#endif
 	auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
 	
-        // std::cout << "Matrix(out) after computation : " << std::endl << h_matrix_out << std::endl;
-	// std::cout << "Matrix after computation : " << std::endl << h_matrix_correct << std::endl;
-
-        if(h_matrix_correct == h_matrix_out) std::cout << "Computation was correct." << std::endl;
+        //std::cout << "Matrix(out) after computation : " << std::endl << h_matrix_out << std::endl;
+     //std::cout << "Matrix after computation : " << std::endl << h_matrix_correct << std::endl;
+#ifdef SIMPLE
+    if(h_matrix_correct == h_matrix_out_simple) {
+    std::cout << "[INFO] Simple computation was correct." << std::endl;
+    } else {
+        std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
+    }
+#endif
+#ifdef LOCAL
+        if(h_matrix_correct == h_matrix_out) {
+		std::cout << "[INFO] Local computation was correct." << std::endl;
+	} else {
+		std::cout << "[ERR ] FAILURE: Local computation was incorrect!" << std::endl;
+	}
+#endif
     }
 
 
