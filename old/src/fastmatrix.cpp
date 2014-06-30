@@ -11,7 +11,7 @@
 
 #undef SIMPLE
 #define LOCAL
-#undef OUTPUT
+#define OUTPUT
 #define EXECUTE_N_TIMES 1
 
 namespace kernel_strings {
@@ -72,7 +72,7 @@ __kernel void multiply_simple(unsigned int n, unsigned int k, unsigned int m,
 }
 
 template<class TYPE>
-__kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
+__kernel void multiplyc(unsigned int n, unsigned int k, unsigned int m,
                        __global TYPE *dst, __global TYPE *src1, __global TYPE *src2)
 {
     int BLOCK_SIZE = 16;
@@ -93,26 +93,50 @@ __kernel void multiply(unsigned int n, unsigned int k, unsigned int m,
     for (int j = 0; j < (k / 16); ++j) {
         //
         As[l_col * 16 + l_row] = src1[(g_row * 16 + j * n * 16) + (l_col * n + l_row)];
-
-        /*dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)]
-                = src1[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)];*/
-
         Bs[l_col * 16 + l_row] = src2[(j * 16 + g_col * k * 16) + (l_col * k + l_row)];
 
-        /*dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)]
-                        = src2[(g_row * 16 + g_col * k * 16) + (l_col * k + l_row)];*/
-
-        //
         barrier(CLK_LOCAL_MEM_FENCE);
-        //
+
         for (int e = 0; e < 16; ++e) {
             c_value += Bs[l_col * 16 + e] * As[e * 16 + l_row];
-        //
 	}
         barrier(CLK_LOCAL_MEM_FENCE);
     }
 
     dst[(g_row * 16 + g_col * n * 16) + (l_col * n + l_row)] = c_value;
+}
+
+template<class TYPE>
+__kernel void multiplyr(unsigned int n, unsigned int k, unsigned int m,
+                       __global TYPE *dst, __global TYPE *src1, __global TYPE *src2)
+{
+    __local TYPE As[4][4];
+    __local TYPE Bs[4][4];
+
+    unsigned int g_col = get_group_id(0);
+    unsigned int g_row = get_group_id(1);
+
+    unsigned int l_col = get_local_id(0);
+    unsigned int l_row = get_local_id(1);
+
+    if(g_col >= n / 4 || g_row >= m / 4 || l_col >= 4 || l_row >= 4)
+        return;
+
+    TYPE c_value = 0;
+
+    for (int j = 0; j < (k / 4); ++j) {
+        As[l_row][l_col] = src1[(g_row * 4 + l_row) * k + (j * 4 + l_col)];
+        Bs[l_row][l_col] = src2[(j * 4 + l_row) * k + (g_col * 4 + l_col)];
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        for (int e = 0; e < 4; ++e) {
+            c_value += As[l_row][e] * Bs[e][l_col];
+    }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    dst[(g_row * 4 + l_row) * n + g_col * 4 + l_col] = c_value;
 }
 
 )";
@@ -148,6 +172,8 @@ int main()
         typedef float Type;
 //         typedef utl::Matrix <Type,utl::column_major_tag> Matrix;
 //         typedef utl::Ones <Type,utl::column_major_tag> Ones;
+        // typedef utl::Zeros <Type,utl::row_major_tag> Zeros;
+        // typedef utl::Rand <Type,utl::row_major_tag, utl::uniform_dist_tag> Rand;
         typedef utl::Zeros <Type,utl::column_major_tag> Zeros;
         typedef utl::Rand <Type,utl::column_major_tag, utl::uniform_dist_tag> Rand;
 
@@ -155,13 +181,13 @@ int main()
 
         // get the kernels.
 #ifdef LOCAL
-        ocl::Kernel &kernel = program.kernel("multiply", utl::type::Single);
+        ocl::Kernel &kernel = program.kernel("multiplyc", utl::type::Single);
 #endif
 #ifdef SIMPLE
         ocl::Kernel &kernel_simple = program.kernel("multiply_simple", utl::type::Single);
 #endif
 
-#define SIZE 4096*2
+#define SIZE 16
         size_t n = SIZE, k = SIZE, m = SIZE;
 
         size_t elements_a = n * k;
@@ -250,32 +276,33 @@ int main()
 	min_gpu = std::min_element(h_matrix_out.begin(), h_matrix_out.end())[0];
 	
 	std::cout << "[INFO] Minimum [GPU]: " << min_gpu << "\n"
-	<< "[INFO] Time [GPU in us] = " << Timer::elapsed().count()/EXECUTE_N_TIMES << " (executed "<<EXECUTE_N_TIMES << " time(s))" << std::endl;
+    << "[INFO] Time [GPU in us] = " << Timer::elapsed().count()/EXECUTE_N_TIMES << " (executed "<<EXECUTE_N_TIMES << " time(s))" << std::endl;
 #endif
 
-	//auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
-	
-#ifdef SIMPLE
-	#ifdef LOCAL
-	    if(h_matrix_out == h_matrix_out_simple) {
-	    std::cout << "[INFO] Computation was correct." << std::endl;
-	    } else {
-		std::cout << "[ERR ] FAILURE: Computation was incorrect!" << std::endl;
-	    }
+    auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
 
-		#ifdef OUTPUT
-		     std::cout << "Matrix(simple) after computation : " << std::endl << h_matrix_out_simple << std::endl;
-		     std::cout << "Matrix(local)  after computation : " << std::endl << h_matrix_out << std::endl;
-		#endif
-	#else
-		auto h_matrix_correct = (h_matrix_in_a * h_matrix_in_b);
+#ifdef LOCAL
+    if(h_matrix_out == h_matrix_correct) {
+    std::cout << "[INFO] Computation was correct." << std::endl;
+    } else {
+    std::cout << "[ERR ] FAILURE: Computation was incorrect!" << std::endl;
+    }
+
+    #ifdef OUTPUT
+         std::cout << "Matrix(correct) after computation : " << std::endl << h_matrix_correct << std::endl;
+         std::cout << "Matrix(local)  after computation : " << std::endl << h_matrix_out << std::endl;
+    #endif
+#endif
+
+#ifdef SIMPLE
 		if(h_matrix_correct == h_matrix_out_simple) {
 		       std::cout << "[INFO] Simple computation was correct." << std::endl;
 	       } else {
 		       std::cout << "[ERR ] FAILURE: Simple computation was incorrect!" << std::endl;
-	       }
-	#endif
+           }
 #endif
+
+
     }
 
 

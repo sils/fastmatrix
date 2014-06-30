@@ -1,0 +1,285 @@
+// Host code
+// Matrices are stored in row-major order:
+// M(row, col) = *(M.elements + row * M.width + col)
+typedef struct {
+    int width;
+    int height;
+    cl_mem elements;
+} Matrix;
+// Thread block size
+#define BLOCK_SIZE 16
+// Matrix multiplication - Host code
+// Matrix dimensions are assumed to be multiples of BLOCK_SIZE
+void
+MatMulHost(const Matrix A, const Matrix B, Matrix C,
+           const cl_context context,
+           const cl_kernel matMulKernel, const cl_command_queue queue)
+{
+// Load A and B to device memory
+    Matrix d_A;
+    d_A.width = A.width;
+    d_A.height = A.height;
+    size_t size = A.width * A.height * sizeof(float);
+    d_A.elements = clCreateBuffer(context,
+                                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                  size, A.elements, 0);
+    Matrix d_B;
+    d_B.width = B.width;
+    d_B.height = B.height;
+    size = B.width * B.height * sizeof(float);
+    d_B.elements = clCreateBuffer(context,
+                                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                  size, B.elements, 0);
+// Allocate C in device memory
+    Matrix d_C;
+    d_C.width = C.width;
+    d_C.height = C.height;
+    size = C.width * C.height * sizeof(float);
+    d_C.elements = clCreateBuffer(context, CL_MEM_WRITE_ONLY, size, 0, 0);
+// Invoke kernel
+    cl_uint i = 0;
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.width),
+                   (void *) &d_A.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.height),
+                   (void *) &d_A.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.elements),
+                   (void *) &d_A.elements);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.width),
+                   (void *) &d_B.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.height),
+                   (void *) &d_B.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.elements),
+                   (void *) &d_B.elements);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.width),
+                   (void *) &d_C.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.height),
+                   (void *) &d_C.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.elements),
+                   (void *) &d_C.elements);
+    size_t localWorkSize[] = { BLOCK_SIZE, BLOCK_SIZE };
+    size_t globalWorkSize[] =
+        { B.width / dimBlock.x, A.height / dimBlock.y };
+    clEnqueueNDRangeKernel(queue, matMulKernel, 2, 0, globalWorkSize,
+                           localWorkSize, 0, 0, 0);
+// Read C from device memory
+    clEnqueueReadBuffer(queue, d_C.elements, CL_TRUE, 0, size,
+                        C.elements, 0, 0, 0);
+// Free device memory
+    clReleaseMemObject(d_A.elements);
+    clReleaseMemObject(d_C.elements);
+    clReleaseMemObject(d_B.elements);
+}
+
+// Kernel code
+// Matrices are stored in row-major order:
+// M(row, col) = *(M.elements + row * M.width + col)
+typedef struct {
+    int width;
+    int height;
+    __global float *elements;
+} Matrix;
+// Thread block size
+#define BLOCK_SIZE 16
+// Matrix multiplication function called by MatMulKernel()
+void MatMul(Matrix A, Matrix B, Matrix C)
+{
+    float Cvalue = 0;
+    int row = get_global_id(1);
+    int col = get_global_id(0);
+    for (int e = 0; e < A.width; ++e)
+        Cvalue +=
+            A.elements[row * A.width + e] * B.elements[e * B.width + col];
+    C.elements[row * C.width + col] = Cvalue;
+}
+
+// Matrix multiplication kernel called by MatMulHost()
+__kernel void
+MatMulKernel(int Awidth, int Aheight, __global float *Aelements,
+             int Bwidth, int Bheight, __global float *Belements,
+             int Cwidth, int Cheight, __global float *Celements)
+{
+    Matrix A = { Awidth, Aheight, Aelements };
+    Matrix B = { Bwidth, Bheight, Belements };
+    Matrix C = { Cwidth, Cheight, Celements };
+    matrixMul(A, B, C);
+}
+
+
+
+
+
+// Host code
+// Matrices are stored in row-major order:
+// M(row, col) = *(M.elements + row * M.stride + col)
+typedef struct {
+    int width;
+    int height;
+    int stride;
+    cl_mem elements;
+} Matrix;
+// Thread block size
+#define BLOCK_SIZE 16
+// Matrix multiplication - Host code
+// Matrix dimensions are assumed to be multiples of BLOCK_SIZE
+void
+MatMulHost(const Matrix A, const Matrix B, Matrix C,
+           const cl_context context,
+           const cl_kernel matMulKernel, const cl_command_queue queue)
+{
+// Load A and B to device memory
+    Matrix d_A;
+    d_A.width = d_A.stride = A.width;
+    d_A.height = A.height;
+    size_t size = A.width * A.height * sizeof(float);
+    d_A.elements = clCreateBuffer(context,
+                                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                  size, A.elements, 0);
+    Matrix d_B;
+    d_B.width = d_B.stride = B.width;
+    d_B.height = B.height;
+    size = B.width * B.height * sizeof(float);
+    d_B.elements = clCreateBuffer(context,
+                                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                  size, B.elements, 0);
+// Allocate C in device memory
+    Matrix d_C;
+    d_C.width = d_C.stride = C.width;
+    d_C.height = C.height;
+    size = C.width * C.height * sizeof(float);
+    d_C.elements = clCreateBuffer(context, CL_MEM_WRITE_ONLY, size, 0, 0);
+// Invoke kernel
+    cl_uint i = 0;
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.width),
+                   (void *) &d_A.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.height),
+                   (void *) &d_A.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.stride),
+                   (void *) &d_A.stride);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_A.elements),
+                   (void *) &d_A.elements);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.width),
+                   (void *) &d_B.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.height),
+                   (void *) &d_B.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.stride),
+                   (void *) &d_B.stride);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_B.elements),
+                   (void *) &d_B.elements);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.width),
+                   (void *) &d_C.width);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.height),
+                   (void *) &d_C.height);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.stride),
+                   (void *) &d_C.stride);
+    clSetKernelArg(matMulKernel, i++, sizeof(d_C.elements),
+                   (void *) &d_C.elements);
+    size_t localWorkSize[] = { BLOCK_SIZE, BLOCK_SIZE };
+    size_t globalWorkSize[] =
+        { B.width / dimBlock.x, A.height / dimBlock.y };
+    clEnqueueNDRangeKernel(queue, matMulKernel, 2, 0, globalWorkSize,
+                           localWorkSize, 0, 0, 0);
+// Read C from device memory
+    clEnqueueReadBuffer(queue, d_C.elements, CL_TRUE, 0, size,
+                        C.elements, 0, 0, 0);
+// Free device memory
+    clReleaseMemObject(d_A.elements);
+    clReleaseMemObject(d_C.elements);
+    clReleaseMemObject(d_B.elements);
+}
+
+// Kernel code
+// Matrices are stored in row-major order:
+// M(row, col) = *(M.elements + row * M.stride + col)
+typedef struct {
+    int width;
+    int height;
+    int stride;
+    __global float *elements;
+} Matrix;
+// Thread block size
+#define BLOCK_SIZE 16
+// Get a matrix element
+float GetElement(const Matrix A, int row, int col)
+{
+    return A.elements[row * A.stride + col];
+}
+
+// Set a matrix element
+void SetElement(Matrix A, int row, int col, float value)
+{
+    A.elements[row * A.stride + col] = value;
+}
+
+// Get the BLOCK_SIZExBLOCK_SIZE sub-matrix Asub of A that is
+// located col sub-matrices to the right and row sub-matrices down
+// from the upper-left corner of A
+Matrix GetSubMatrix(Matrix A, int row, int col)
+{
+    Matrix Asub;
+    Asub.width = BLOCK_SIZE;
+    Asub.height = BLOCK_SIZE;
+    Asub.stride = A.stride;
+    Asub.elements =
+        &A.elements[A.stride * BLOCK_SIZE * row + BLOCK_SIZE * col];
+    return Asub;
+}
+
+// Matrix multiplication function called by MatMulKernel()
+void
+MatMul(Matrix C, Matrix A, Matrix B,
+       __local float As[BLOCK_SIZE][BLOCK_SIZE],
+       __local float Bs[BLOCK_SIZE][BLOCK_SIZE])
+{
+// Block row and column
+    int blockRow = get_group_id(1);
+    int blockCol = get_group_id(0);
+// Each thread block computes one sub-matrix Csub of C
+    Matrix Csub = GetSubMatrix(C, blockRow, blockCol);
+// Each thread computes one element of Csub
+// by accumulating results into Cvalue
+    float Cvalue = 0;
+// Thread row and column within Csub
+    int row = get_local_id(1);
+    int col = get_local_id(0);
+// Loop over all the sub-matrices of A and B that are
+// required to compute Csub
+// Multiply each pair of sub-matrices together
+// and accumulate the results
+    for (int m = 0; m < (A.width / BLOCK_SIZE); ++m) {
+// Get sub-matrix Asub of A
+        Matrix Asub = GetSubMatrix(A, blockRow, m);
+// Get sub-matrix Bsub of B
+        Matrix Bsub = GetSubMatrix(B, m, blockCol);
+// Load Asub and Bsub from device memory to shared memory
+// Each thread loads one element of each sub-matrix
+        As[row][col] = GetElement(Asub, row, col);
+        Bs[row][col] = GetElement(Bsub, row, col);
+// Synchronize to make sure the sub-matrices are loaded
+// before starting the computation
+        barrier(CLK_LOCAL_MEM_FENCE);
+// Multiply Asub and Bsub together
+        for (int e = 0; e < BLOCK_SIZE; ++e)
+            Cvalue += As[row][e] * Bs[e][col];
+// Synchronize to make sure that the preceding
+// computation is done before loading two new
+// sub-matrices of A and B in the next iteration
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+// Write Csub to device memory
+// Each thread writes one element
+    SetElement(Csub, row, col, Cvalue);
+}
+
+// Matrix multiplication kernel called by MatMulHost()
+__kernel void
+matrixMulKernel(int Cwidth, int Cheight, int Cstride, __global float *Celements,
+                int Awidth, int Aheight, int Astride, __global float *Aelements,
+                int Bwidth, int Bheight, int Bstride, __global float *Belements,
+                __local float As[BLOCK_SIZE][BLOCK_SIZE],
+                __local float Bs[BLOCK_SIZE][BLOCK_SIZE])
+{
+    Matrix C = { Cwidth, Cheight, Cstride, Celements };
+    Matrix A = { Awidth, Aheight, Astride, Aelements };
+    Matrix B = { Bwidth, Bheight, Bstride, Belements };
+    MatMul(A, B, C, As, Bs);
+}
